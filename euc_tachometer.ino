@@ -1,102 +1,121 @@
-#include <Adafruit_SSD1306.h>
-#include <Wire.h>
-Adafruit_SSD1306 display(128, 64);
-int SENS = 1;
-int counter = 0;
-int TIMES = 0;
-boolean LASTTEST = 0;
-long hSEKUNDj = 0;
-long COUNT = 0;
-int CSPEED = 0;
-long DISTANCE = 0;
 
-/*long Checkspeed = 0;
-long Displayspeed = 0;*/
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <math.h>
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+// Variables
+float speed, current, distancekm, distance;
+int battery, bat_lvl, temperature, total_distance, prev_total_distance;
+byte count, i, data[100], alert, beeper;
+#define OLED_RESET -1
+#define SCREEN_ADDRESS 0x3C
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+#define NUMFLAKES 10
+
+#define LOGO_HEIGHT 16
+#define LOGO_WIDTH 16
 
 void setup() {
-pinMode(3, INPUT_PULLUP);
-pinMode(LED_BUILTIN, OUTPUT);
-Wire.begin();
-delay(20);
-  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-      digitalWrite(LED_BUILTIN, HIGH);
-    }
+  delay(1000);
+  Serial.begin(115200);
+  // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    for (;;)
+      ;
+  }
   display.setTextColor(SSD1306_WHITE);
-delay(500);
-display.clearDisplay();
-display.setCursor(0, 0);
-display.setTextSize(6);
-display.println("START");
-display.display();
-delay(1000);
 }
 
 void loop() {
-
-//Checkspeed = (-(millis()));
-
-  TIMES = 0;
-  for (counter = 0; counter < 500; ++counter) {
-  //TIMES += random(0, 2);
-  if (digitalRead( 3) == LOW && SENS == 0) {
-  if (LASTTEST = 1) {
-  TIMES += 1;
-  SENS = 1;
-  }
-  LASTTEST = 1;
-  digitalWrite(LED_BUILTIN, HIGH);
-  } 
-  else {
-      LASTTEST = 0;
-
-  }
-  if (digitalRead(3) == HIGH && SENS == 1) {
-  SENS = 0;
-  digitalWrite(LED_BUILTIN, LOW);
+  delay(100);
+  display.clearDisplay();
+  //DATA PARSING
+  if (Serial.available()) {
+    count = Serial.available();
+    i = 0;
+    while (Serial.available()) {
+      data[i] = Serial.read();  // Writing data as array 'data[]'
+      i++;
     }
-  delay(1);
+  }
+
+  if (count == 48 && data[18] == (byte)0x00) {
+    int spd = data[4] << 8 | data[5];
+    speed = abs(spd * 3.6 / 100);
+    word vbat = data[2] << 8 | data[3];
+    calc_battery(vbat);
+    int temp = data[12] << 8 | data[13];
+    temperature = temp / 340.0 + 36.53;
+    unsigned long dist = (unsigned long)data[6] << 24 | (unsigned long)data[7] << 16 | (unsigned long)data[8] << 8 | (unsigned long)data[9];
+    distance = dist;
+    unsigned long total_dist = (unsigned long)data[26] << 24 | (unsigned long)data[27] << 16 | (unsigned long)data[28] << 8 | (unsigned long)data[29];
+    total_distance = total_dist / 1000;
+    int amp = data[10] << 8 | data[11];
+    current = amp / 100;
+    alert = data[36];
+    beeper = data[38];
+  }
+
+  if (speed > 2) {
+    display.setCursor(5, 0);
+    display.setTextSize(5);
+    display.println((speed), 0);
+    display.setCursor(75, 0);
+    display.setTextSize(4);
+    display.println(battery);
+    display.setTextSize(4);
+    display.setCursor(5, 37);
+    if (distance > 999) {
+      display.print((distance / 1000), 2);
+    } else {
+      display.print((distance), 0);
+      display.println("m");
+    }
+
+  } else {
+    display.setTextSize(3);
+    display.setCursor(0, 0);
+    display.print(total_distance);
+    display.println("km");
+    display.setCursor(0, 24);
+    //display.println("km");
+    display.setTextSize(2);
+    if (distance > 999) {
+      display.print((distance / 1000), 3);
+      display.println("km");
+    } else {
+      display.print((distance), 0);
+      display.println("m");
+    }
+    display.setTextSize(3);
+    display.print(battery);
+    display.print("% ");
+    display.print(temperature);
+    display.println("C");
+  }
+  display.display();
 }
 
-/*Checkspeed += millis();
-Displayspeed = (-(millis()));*/
-
-  display.clearDisplay();
-  COUNT += 1;
-  if (TIMES > 7) {         //WHEN MOVING ONLY
-  DISTANCE += TIMES;
-  hSEKUNDj += 1;
-  } 
-  else {
-  TIMES = 0;
-  }
-  display.setCursor(5,0);
-  display.setTextSize(5);
-  display.println((TIMES * 0.33) , 0); // ... * CM / 100 000 x 6936.416184971098 / SENSORS = (0.3294797687861272)
-
-  display.setCursor(80, 0);
-  display.setTextSize(4);
-  display.println(CSPEED);
-
-  display.setTextSize(4);
-  display.setCursor(5,37);
-  if (DISTANCE > 19285) {
-  display.println(DISTANCE * 0.0000519 , 2);
+int calc_battery(int voltage) {
+  // WheelLog's 'better percents' formula
+  if (voltage > 5440) {
+    battery = (voltage - 5380) / 13;
+  } else if (voltage > 5290) {
+    battery = (int)round((voltage - 5290) / 32.5);
   } else {
-  display.print(DISTANCE * 0.0519 , 0);
+    battery = 0;
   }
-          if (COUNT > 3 && hSEKUNDj > 1) {
-          CSPEED = (DISTANCE / hSEKUNDj * 0.33);
-          COUNT = 0;
-          }
-//display.fillRect(66, 0, 1, 32, WHITE);
-display.display();
-delay(1);
-
-/*Displayspeed += millis();
-display.clearDisplay();
-  display.setCursor(80, 0);
-display.println(Displayspeed);
-  display.setCursor(0, 0);
-  display.println(Checkspeed);
-display.display();*/
+  /*//WheelLog's normal formula
+    if (voltage <= 5290) {
+      battery = 0;
+    } else if (voltage >= 6580) {
+      battery = 100;
+    } else {
+      battery = (voltage - 5290) / 13;
+    }*/
+  return battery;
 }
